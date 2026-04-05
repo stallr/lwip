@@ -33,6 +33,12 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 
+#if defined(_MSC_VER) && !defined(__MINGW32__)
+#ifndef _CRT_RAND_S
+#define _CRT_RAND_S
+#endif
+#endif
+
 #include <stdlib.h>
 #include <stdio.h> /* sprintf() for task names */
 
@@ -78,6 +84,15 @@ static LARGE_INTEGER freq, sys_start_time;
 
 static DWORD netconn_sem_tls_index;
 
+#if defined(_MSC_VER) && !defined(__MINGW32__)
+static void
+sys_win_rand_init(void)
+{
+  /* rand_s() is stateless and avoids the legacy CryptoAPI provider handle
+   * lifecycle. Under the Windows MSVC TUN runtime we observed crashes inside
+   * cryptsp.dll while lwIP was seeding UDP state. */
+}
+#else
 static HCRYPTPROV hcrypt;
 
 static void
@@ -95,11 +110,19 @@ sys_win_rand_init(void)
     }
   }
 }
+#endif
 
 unsigned int
 lwip_port_rand(void)
 {
   u32_t ret;
+#if defined(_MSC_VER) && !defined(__MINGW32__)
+  if (rand_s(&ret) == 0) {
+    return ret;
+  }
+  LWIP_ASSERT("rand_s failed", 0);
+  return 0;
+#else
   if (CryptGenRandom(hcrypt, sizeof(ret), (BYTE*)&ret)) {
     return ret;
   }
@@ -110,6 +133,7 @@ lwip_port_rand(void)
   }
   LWIP_ASSERT("CryptGenRandom failed", 0);
   return 0;
+#endif
 }
 
 static void
