@@ -54,7 +54,12 @@
 
 #define LWIP_ERRNO_INCLUDE <errno.h>
 
-#if defined(LWIP_UNIX_LINUX) || defined(LWIP_UNIX_HURD) || defined(LWIP_UNIX_KFREEBSD)
+/* Bionic (Android) defines `errno` as the macro `(*__errno())`, so the cpp
+ * tokenization of `#include LWIP_ERRNO_INCLUDE` would expand `<errno.h>` into
+ * `<(*__errno()).h>` and fail. lwIP already provides a literal-include
+ * fallback (LWIP_ERRNO_STDINCLUDE) — directives' include arg is not subject
+ * to macro substitution there. Opt Android into that path. */
+#if defined(LWIP_UNIX_LINUX) || defined(LWIP_UNIX_HURD) || defined(LWIP_UNIX_KFREEBSD) || defined(LWIP_UNIX_ANDROID)
 #define LWIP_ERRNO_STDINCLUDE	1
 #endif
 
