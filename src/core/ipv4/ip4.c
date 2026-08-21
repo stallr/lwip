@@ -40,6 +40,9 @@
 
 #include "lwip/opt.h"
 
+/* TomatoCloud patch: cross-thread drop counter for the pretend TUN netif. */
+#include <stdatomic.h>
+
 #if LWIP_IPV4
 
 #include "lwip/ip.h"
@@ -62,6 +65,14 @@
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif
+
+/* TomatoCloud patch (2026-08-21 review O2): on the pretend TUN netif every
+ * packet is conceptually "for us"; reaching the not-for-us branch means a
+ * protocol/flag hole in the accept clause — exactly how the ICMP second
+ * gate stayed invisible (routed echo requests freed here with LWIP_STATS
+ * compiled out and nothing counting). Writers run on the lwIP input task
+ * thread; the reader is hev's listener status JSON on FFI threads. */
+atomic_ullong pretend_ip4_not_for_us_drops;
 
 /** Set this to 0 in the rare case of wanting to call an extra function to
  * generate the IP checksum (in contrast to calculating it on-the-fly). */
@@ -655,6 +666,14 @@ ip4_input(struct pbuf *p, struct netif *inp)
   if (netif == NULL) {
     /* packet not for us, route or discard */
     LWIP_DEBUGF(IP_DEBUG | LWIP_DBG_TRACE, ("ip4_input: packet not for us.\n"));
+    /* TomatoCloud patch: count drops on the pretend TUN netif (see the
+     * counter's definition above). */
+    if (netif_is_flag_set(inp, NETIF_FLAG_PRETEND_TCP) ||
+        netif_is_flag_set(inp, NETIF_FLAG_PRETEND_UDP) ||
+        netif_is_flag_set(inp, NETIF_FLAG_PRETEND_ICMP)) {
+      atomic_fetch_add_explicit(&pretend_ip4_not_for_us_drops, 1,
+                                memory_order_relaxed);
+    }
 #if IP_FORWARD
     /* non-broadcast packet? */
     if (!ip4_addr_isbroadcast(ip4_current_dest_addr(), inp)) {

@@ -47,6 +47,9 @@
 
 #include "lwip/opt.h"
 
+/* TomatoCloud patch: cross-thread counter for the pretend-dispatch branch. */
+#include <stdatomic.h>
+
 #if LWIP_UDP /* don't build if not configured for use in lwipopts.h */
 
 #include "lwip/udp.h"
@@ -79,6 +82,15 @@ static u16_t udp_port = UDP_LOCAL_PORT_RANGE_START;
 /* The list of UDP PCBs */
 /* exported in udp.h (was static) */
 struct udp_pcb *udp_pcbs;
+
+/* Pretend-dispatch pcb-pool exhaustion counter (TomatoCloud patch): see the
+ * increment site in udp_input's pretend branch. Read via extern by
+ * hev-socks5-tunnel.c's listener status JSON, which runs on FFI (Tokio)
+ * threads while this writer runs on the lwIP input task thread — atomic,
+ * relaxed, matching hev's own counters (2026-08-21 review N1: plain u64
+ * across threads is a C data race even when a 64-bit aligned load happens
+ * not to tear). */
+atomic_ullong pretend_udp_pcb_alloc_failures;
 
 /**
  * Initialize this module.
@@ -458,6 +470,13 @@ again:
           pcb->recv(pcb->recv_arg, npcb, p, ip_current_dest_addr(), dest);
           goto again;
         }
+        /* Pretend pcb pool exhausted (MEMP_NUM_UDP_PCB): the new flow's
+         * first packet is freed below with no session, no callback and —
+         * with LWIP_STATS compiled out — no statistic. Count it so the
+         * structural ceiling is observable (read by hev-socks5-tunnel.c's
+         * listener status JSON). Single lwIP input thread; plain increment. */
+        atomic_fetch_add_explicit(&pretend_udp_pcb_alloc_failures, 1,
+                                  memory_order_relaxed);
         break;
       }
     }
