@@ -489,6 +489,14 @@ void *hev_calloc (size_t nmemb, size_t size);
 
 /**
  * CHECKSUM_CHECK_UDP==1: Check checksums in software for incoming UDP packets.
+ *
+ * UNPINNED while this is 0: upstream e22c9d2 runs this check on a
+ * pretend-UDP datagram before udp_input opens the new flow's pcb and calls
+ * the listener (src/core/udp.c), so a first datagram with a nonzero, wrong
+ * checksum never starts a session (a zero checksum field is never checked,
+ * for IPv6 too). With 0 that block compiles to nothing and no hev test can
+ * see it; turning this on needs a hev pin (a first datagram with a nonzero,
+ * wrong checksum must not reach the pretend listener).
  */
 #define CHECKSUM_CHECK_UDP              0
 
