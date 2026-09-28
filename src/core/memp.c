@@ -83,6 +83,29 @@ const struct memp_desc *const memp_pools[MEMP_MAX] = {
 #include "lwip/priv/memp_std.h"
 };
 
+#if LWIP_UDP && !MEMP_MEM_MALLOC
+unsigned int
+memp_udp_pcbs_free(unsigned int limit, unsigned int *capacity)
+{
+  const struct memp_desc *desc = memp_pools[MEMP_UDP_PCB];
+  struct memp *m;
+  unsigned int count = 0;
+  SYS_ARCH_DECL_PROTECT(old_level);
+  SYS_ARCH_PROTECT(old_level);
+  if (capacity != NULL) {
+    *capacity = desc->num;
+  }
+  if (limit > desc->num) {
+    limit = desc->num;
+  }
+  for (m = *desc->tab; m && count < limit; m = m->next) {
+    count++;
+  }
+  SYS_ARCH_UNPROTECT(old_level);
+  return count;
+}
+#endif
+
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif

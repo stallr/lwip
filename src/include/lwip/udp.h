@@ -164,6 +164,11 @@ err_t            udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p,
 
 /* The following functions are the lower layer interface to UDP. */
 void             udp_input      (struct pbuf *p, struct netif *inp);
+#if LWIP_UDP_PRETEND_INPUT_HOOK
+extern int (*udp_pretend_input_hook)(struct pbuf *, struct netif *,
+                                    const ip_addr_t *, u16_t,
+                                    const ip_addr_t *, u16_t);
+#endif
 
 void             udp_init       (void);
 
