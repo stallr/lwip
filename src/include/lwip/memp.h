@@ -139,6 +139,11 @@ struct memp_malloc_helper
 #endif /* MEM_USE_POOLS */
 
 void  memp_init(void);
+#if LWIP_UDP && !MEMP_MEM_MALLOC
+/* Scalar boundary: no consumer-selected pool enum or descriptor layout.
+ * Call under the application's core serialization, like udp_new/remove. */
+unsigned int memp_udp_pcbs_free(unsigned int limit, unsigned int *capacity);
+#endif
 
 #if MEMP_OVERFLOW_CHECK
 void *memp_malloc_fn(memp_t type, const char* file, const int line);

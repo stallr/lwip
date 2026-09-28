@@ -79,6 +79,10 @@ static void icmp6_send_response_with_addrs_and_netif(struct pbuf *p, u8_t code, 
  * @param p the mld packet, p->payload pointing to the icmpv6 header
  * @param inp the netif on which this packet was received
  */
+#if LWIP_ICMP6_PRETEND_INPUT_HOOK
+int (*icmp6_pretend_input_hook)(struct pbuf *, struct netif *);
+#endif
+
 void
 icmp6_input(struct pbuf *p, struct netif *inp)
 {
@@ -111,6 +115,18 @@ icmp6_input(struct pbuf *p, struct netif *inp)
     }
   }
 #endif /* CHECKSUM_CHECK_ICMP6 */
+
+#if LWIP_ICMP6_PRETEND_INPUT_HOOK
+  if (netif_is_flag_set(inp, NETIF_FLAG_PRETEND_ICMP)) {
+    if (icmp6_pretend_input_hook == NULL) {
+      pbuf_free(p);
+      return;
+    }
+    if (icmp6_pretend_input_hook(p, inp)) {
+      return;
+    }
+  }
+#endif
 
   switch (icmp6hdr->type) {
   case ICMP6_TYPE_NA: /* Neighbor advertisement */

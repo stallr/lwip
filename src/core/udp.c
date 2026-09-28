@@ -91,6 +91,11 @@ struct udp_pcb *udp_pcbs;
  * across threads is a C data race even when a 64-bit aligned load happens
  * not to tear). */
 atomic_ullong pretend_udp_pcb_alloc_failures;
+#if LWIP_UDP_PRETEND_INPUT_HOOK
+int (*udp_pretend_input_hook)(struct pbuf *, struct netif *,
+                             const ip_addr_t *, u16_t,
+                             const ip_addr_t *, u16_t);
+#endif
 
 /**
  * Initialize this module.
@@ -387,6 +392,15 @@ again:
     }
 #endif /* CHECKSUM_CHECK_UDP */
   }
+
+#if LWIP_UDP_PRETEND_INPUT_HOOK
+  if (netif_is_flag_set(inp, NETIF_FLAG_PRETEND_UDP) &&
+      udp_pretend_input_hook &&
+      udp_pretend_input_hook(p, inp, ip_current_src_addr(), src,
+                            ip_current_dest_addr(), dest)) {
+    goto end;
+  }
+#endif
 
   if (for_us) {
     if (pbuf_remove_header(p, UDP_HLEN)) {

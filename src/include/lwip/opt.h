@@ -3636,4 +3636,21 @@
 #error "LAST_ACK pressure ERR_MEM requires adapted raw callback consumers only"
 #endif
 
+/* HEV packet ownership hooks. Default off preserves the generic lwIP API.
+ * UDP: after validation, before matched delivery/allocation. A taken packet
+ * belongs to the callback; not-taken must leave it completely unchanged.
+ * ICMP6: after parsing/reassembly and checksum, before any type handler.
+ * Missing callback consumes on a pretend ICMP netif (fail closed).
+ * Callbacks must not yield; current IP state is borrowed until input returns.
+ */
+#ifndef LWIP_UDP_PRETEND_INPUT_HOOK
+#define LWIP_UDP_PRETEND_INPUT_HOOK 0
+#endif
+#ifndef LWIP_ICMP6_PRETEND_INPUT_HOOK
+#define LWIP_ICMP6_PRETEND_INPUT_HOOK 0
+#endif
+#if LWIP_ICMP6_PRETEND_INPUT_HOOK && (LWIP_RAW || !NO_SYS)
+#error "ICMP6 policy hook requires NO_SYS and no earlier raw consumer"
+#endif
+
 #endif /* LWIP_HDR_OPT_H */
