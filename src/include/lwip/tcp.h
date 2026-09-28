@@ -116,6 +116,10 @@ typedef err_t (*tcp_poll_fn)(void *arg, struct tcp_pcb *tpcb);
  * @param err Error code to indicate why the pcb has been closed
  *            ERR_ABRT: aborted through tcp_abort or by a TCP timer
  *            ERR_RST: the connection was reset by the remote host
+ *            ERR_MEM: only with LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM, allocation
+ *                     pressure reclaimed a LAST_ACK PCB. It is already freed;
+ *                     this is not a graceful-close acknowledgement. Raw
+ *                     consumers (including ALTCP users) must handle it.
  */
 typedef void  (*tcp_err_fn)(void *arg, err_t err);
 

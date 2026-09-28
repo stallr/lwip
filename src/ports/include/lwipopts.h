@@ -451,6 +451,9 @@ void *hev_calloc (size_t nmemb, size_t size);
  */
 #define LWIP_NETCONN                    0
 
+/* HEV preserves its independent upload queue after LAST_ACK reclamation. */
+#define LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM 1
+
 /*
    ------------------------------------
    ---------- Socket options ----------

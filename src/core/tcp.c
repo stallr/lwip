@@ -559,8 +559,8 @@ tcp_shutdown(struct tcp_pcb *pcb, int shut_rx, int shut_tx)
  * @param pcb the tcp_pcb to abort
  * @param reset boolean to indicate whether a reset should be sent
  */
-void
-tcp_abandon(struct tcp_pcb *pcb, int reset)
+static void
+tcp_abandon_reason(struct tcp_pcb *pcb, int reset, err_t reason)
 {
   u32_t seqno, ackno;
 #if LWIP_CALLBACK_API
@@ -619,8 +619,15 @@ tcp_abandon(struct tcp_pcb *pcb, int reset)
     }
     last_state = pcb->state;
     tcp_free(pcb);
-    TCP_EVENT_ERR(last_state, errf, errf_arg, ERR_ABRT);
+    TCP_EVENT_ERR(last_state, errf, errf_arg, reason);
   }
+}
+
+/* Public aborts retain the upstream raw-callback contract. */
+void
+tcp_abandon(struct tcp_pcb *pcb, int reset)
+{
+  tcp_abandon_reason(pcb, reset, ERR_ABRT);
 }
 
 /**
@@ -1793,8 +1800,16 @@ tcp_kill_state(enum tcp_state state)
   if (inactive != NULL) {
     LWIP_DEBUGF(TCP_DEBUG, ("tcp_kill_closing: killing oldest %s PCB %p (%"S32_F")\n",
                             tcp_state_str[state], (void *)inactive, inactivity));
-    /* Don't send a RST, since no data is lost. */
-    tcp_abandon(inactive, 0);
+    /* The application may still own upload outside the PCB. Only opted-in
+     * raw consumers distinguish this LAST_ACK reclamation from an abort. */
+#if LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM
+    if (state == LAST_ACK) {
+      tcp_abandon_reason(inactive, 0, ERR_MEM);
+    } else
+#endif
+    {
+      tcp_abandon(inactive, 0);
+    }
   }
 }
 

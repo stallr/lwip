@@ -3622,4 +3622,18 @@
  * @}
  */
 
+/** Opt in to ERR_MEM in the raw TCP error callback when allocation pressure
+ * reclaims a LAST_ACK PCB. The PCB is already freed; this is not a graceful
+ * close acknowledgement. All other abort/error origins retain their reasons.
+ * Default off preserves the upstream contract. Consumers must understand the
+ * additional reason; the netconn/socket/event APIs are not adapted to it.
+ */
+#ifndef LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM
+#define LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM 0
+#endif
+#if LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM && \
+    (LWIP_NETCONN || LWIP_SOCKET || LWIP_EVENT_API || !LWIP_CALLBACK_API)
+#error "LAST_ACK pressure ERR_MEM requires adapted raw callback consumers only"
+#endif
+
 #endif /* LWIP_HDR_OPT_H */
