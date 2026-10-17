@@ -453,6 +453,18 @@ void *hev_calloc (size_t nmemb, size_t size);
 
 /* HEV preserves its independent upload queue after LAST_ACK reclamation. */
 #define LWIP_TCP_LAST_ACK_PRESSURE_ERR_MEM 1
+/* HEV can hold a passive open (no SYN|ACK yet) until its owner decides. The
+ * hold needs exactly one ext-arg entry per pcb, so the entry comes with the
+ * option: turning the option off restores the pcb layout without it. Each is
+ * under #ifndef so a compile-time -D can override it (the P12 compile probe
+ * documented at the top of tests/tcp-passive-open-hold-test.c overrides them
+ * that way); no product build does. */
+#ifndef LWIP_TCP_PASSIVE_OPEN_HOLD
+#define LWIP_TCP_PASSIVE_OPEN_HOLD 1
+#endif
+#if LWIP_TCP_PASSIVE_OPEN_HOLD && !defined(LWIP_TCP_PCB_NUM_EXT_ARGS)
+#define LWIP_TCP_PCB_NUM_EXT_ARGS 1
+#endif
 #define LWIP_UDP_PRETEND_INPUT_HOOK 1
 #define LWIP_ICMP6_PRETEND_INPUT_HOOK 1
 

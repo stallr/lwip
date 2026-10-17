@@ -486,6 +486,16 @@ tcp_close(struct tcp_pcb *pcb)
   LWIP_ASSERT_CORE_LOCKED();
 
   LWIP_ERROR("tcp_close: invalid pcb", pcb != NULL, return ERR_ARG);
+
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+  /* A held passive open can only be ended by release, refuse or drop; closing
+     it would set TF_RXCLOSED and queue a FIN ahead of the SYN|ACK. A listener
+     is unaffected: TCP_PASSIVE_HELD reads state first. */
+  if (TCP_PASSIVE_HELD(pcb)) {
+    return ERR_VAL;
+  }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
+
   LWIP_DEBUGF(TCP_DEBUG, ("tcp_close: closing in "));
 
   tcp_debug_print_state(pcb->state);
@@ -521,6 +531,13 @@ tcp_shutdown(struct tcp_pcb *pcb, int shut_rx, int shut_tx)
   if (pcb->state == LISTEN) {
     return ERR_CONN;
   }
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+  /* See tcp_close: a held passive open is ended only by release, refuse or
+     drop, and shutdown would set TF_RXCLOSED or queue a FIN. */
+  if (TCP_PASSIVE_HELD(pcb)) {
+    return ERR_VAL;
+  }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
   if (shut_rx) {
     /* shut down the receive side: set a flag not to receive any more data... */
     tcp_set_flags(pcb, TF_RXCLOSED);
@@ -646,6 +663,88 @@ tcp_abort(struct tcp_pcb *pcb)
 {
   tcp_abandon(pcb, 1);
 }
+
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+/**
+ * Ends a hold set by a passive_open callback that returned ERR_INPROGRESS by
+ * sending the SYN|ACK that tcp_listen_input would have sent. The contract is
+ * on the declaration in lwip/tcp.h.
+ *
+ * @param pcb the held connection pcb
+ * @return ERR_OK once the SYN|ACK is queued (the hold is over; do not release
+ *         again), ERR_VAL (no change) if pcb is not held, or the error of
+ *         tcp_enqueue_flags (ERR_MEM) with the pcb still held and unchanged
+ */
+err_t
+tcp_passive_open_release(struct tcp_pcb *pcb)
+{
+  err_t err;
+
+  LWIP_ASSERT_CORE_LOCKED();
+
+  LWIP_ERROR("tcp_passive_open_release: invalid pcb", pcb != NULL, return ERR_ARG);
+
+  if (!TCP_PASSIVE_HELD(pcb)) {
+    return ERR_VAL;
+  }
+  /* Enqueue before leaving the hold: on failure nothing else has changed
+     (tmr, sequence numbers and queues), so release can be retried. */
+  err = tcp_enqueue_flags(pcb, TCP_SYN | TCP_ACK);
+  if (err != ERR_OK) {
+    return err;
+  }
+  tcp_clear_flags(pcb, TF_PASSIVE_HELD);
+  /* The SYN_RCVD timeout runs from the SYN|ACK, not from the held SYN. */
+  pcb->tmr = tcp_ticks;
+  tcp_output(pcb);
+  return ERR_OK;
+}
+
+/**
+ * Ends a hold by aborting the connection: a best-effort RST|ACK acknowledging
+ * the client's SYN, then the pcb is freed (see tcp_abort). The pointer must not
+ * be used again.
+ *
+ * @param pcb the held connection pcb
+ * @return ERR_OK, or ERR_VAL (no change) if pcb is not held
+ */
+err_t
+tcp_passive_open_refuse(struct tcp_pcb *pcb)
+{
+  LWIP_ASSERT_CORE_LOCKED();
+
+  LWIP_ERROR("tcp_passive_open_refuse: invalid pcb", pcb != NULL, return ERR_ARG);
+
+  if (!TCP_PASSIVE_HELD(pcb)) {
+    return ERR_VAL;
+  }
+  tcp_clear_flags(pcb, TF_PASSIVE_HELD);
+  tcp_abort(pcb);
+  return ERR_OK;
+}
+
+/**
+ * Ends a hold silently: nothing is sent and the pcb is freed (see
+ * tcp_abandon). The pointer must not be used again.
+ *
+ * @param pcb the held connection pcb
+ * @return ERR_OK, or ERR_VAL (no change) if pcb is not held
+ */
+err_t
+tcp_passive_open_drop(struct tcp_pcb *pcb)
+{
+  LWIP_ASSERT_CORE_LOCKED();
+
+  LWIP_ERROR("tcp_passive_open_drop: invalid pcb", pcb != NULL, return ERR_ARG);
+
+  if (!TCP_PASSIVE_HELD(pcb)) {
+    return ERR_VAL;
+  }
+  tcp_clear_flags(pcb, TF_PASSIVE_HELD);
+  tcp_abandon(pcb, 0);
+  return ERR_OK;
+}
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
 
 /**
  * @ingroup tcp_raw

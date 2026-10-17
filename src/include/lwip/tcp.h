@@ -182,6 +182,44 @@ typedef void (*tcp_extarg_callback_pcb_destroyed_fn)(u8_t id, void *data);
  * @param lpcb the listening pcb accepting a connection
  * @param cpcb the newly allocated connection pcb
  * @return ERR_OK if OK, any error if connection should be dropped
+ *
+ * With LWIP_TCP_PASSIVE_OPEN_HOLD the callback has a third outcome:
+ * ERR_INPROGRESS holds the passive open. The pcb stays registered in SYN_RCVD
+ * but no SYN|ACK is sent and nothing about it changes until its owner ends the
+ * hold with tcp_passive_open_release(), tcp_passive_open_refuse() or
+ * tcp_passive_open_drop(). Any other non-ERR_OK result still drops the pcb.
+ * The contract for the owner:
+ * - Allocate the single ext-arg id (tcp_ext_arg_alloc_id) once for the process
+ *   lifetime (tcp_init does not reset the allocator) and register the listener
+ *   callbacks after tcp_listen (the conversion copies the table, then frees
+ *   the original).
+ * - Before returning ERR_INPROGRESS, install on the new child its ext-arg
+ *   callbacks and token (tcp_ext_arg_set_callbacks(cpcb, id, ...),
+ *   tcp_ext_arg_set(cpcb, id, owner)), its raw err callback, or both: the
+ *   listener's table is not inherited. Whatever is installed stays valid until
+ *   the child is destroyed.
+ * - The owner learns of every end of the child through the child's ext-arg
+ *   destroy callback, its raw err callback, or both; lwIP runs each one
+ *   installed on every free of a held or released-but-unaccepted child. On an
+ *   exact RST, err runs before destroy, while the pcb is not yet freed. On
+ *   abort, abandon, refuse, drop, tcp_kill_prio, the SYN_RCVD timeout and a
+ *   netif address change, destroy runs before err. err also runs inside the
+ *   owner's own refuse or drop call. From inside err or destroy make no lwIP
+ *   call at all, on any pcb, the hold operations included: they run inside
+ *   tcp_slowtmr's and the netif-address walk's list iteration, which does not
+ *   survive a change to the list (tcp.c tcp_slowtmr, tcp_netif_ip_addr_changed_pcblist).
+ *   Defer to the owner's task, and release the owner's state once, on
+ *   whichever notice comes first.
+ * - Return promptly, and do not write, close, abort or free the new child
+ *   here: the hold flag is set only after the callback returns, so the hold
+ *   operations cannot be used on this child inside it, and returning ERR_ABRT
+ *   after an abort double-frees. To refuse at once, return ERR_INPROGRESS and
+ *   refuse after the callback has unwound.
+ * A held pcb leaves the hold in five ways: the owner's release, refuse or drop;
+ * an exact RST from the peer; the SYN_RCVD timeout (tick-based, only while the
+ * port's timer runs); tcp_kill_prio under allocation pressure; or an abort
+ * (RST|ACK) when the netif address it is bound to changes or is removed.
+ * Closing the listener leaves a held child alive with no listener.
  */
 typedef err_t (*tcp_extarg_callback_passive_open_fn)(u8_t id, struct tcp_pcb_listen *lpcb, struct tcp_pcb *cpcb);
 
@@ -274,6 +312,9 @@ struct tcp_pcb {
 #define TF_RTO         0x0800U /* RTO timer has fired, in-flight data moved to unsent and being retransmitted */
 #if LWIP_TCP_SACK_OUT
 #define TF_SACK        0x1000U /* Selective ACKs enabled */
+#endif
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+#define TF_PASSIVE_HELD 0x2000U /* SYN_RCVD passive open held: no SYN|ACK sent, segments consumed, no output (see LWIP_TCP_PASSIVE_OPEN_HOLD) */
 #endif
 
   /* the rest of the fields are in host byte order
@@ -494,6 +535,32 @@ u8_t tcp_ext_arg_alloc_id(void);
 void tcp_ext_arg_set_callbacks(struct tcp_pcb *pcb, u8_t id, const struct tcp_ext_arg_callbacks * const callbacks);
 void tcp_ext_arg_set(struct tcp_pcb *pcb, u8_t id, void *arg);
 void *tcp_ext_arg_get(const struct tcp_pcb *pcb, u8_t id);
+#endif
+
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+/* End a hold set by a passive_open callback that returned ERR_INPROGRESS. All
+ * three need the core lock and a live pcb (none tests a stale pointer), and
+ * return ERR_VAL with no change unless the pcb is held.
+ * - release: enqueue and send the SYN|ACK. ERR_OK means the transition is
+ *   committed and the SYN|ACK queued, not delivered; an output failure is left
+ *   to retransmission and the SYN_RCVD timeout, and the owner must not release
+ *   again. On a queueing failure it returns that error (ERR_MEM) and the pcb
+ *   stays held, unchanged, so release can be retried. The pcb stays owned: a
+ *   later free still reports to the owner once.
+ * - refuse: clear the hold and tcp_abort (best-effort RST|ACK acknowledging
+ *   the client's SYN); the pcb is freed.
+ * - drop: clear the hold and tcp_abandon(pcb, 0) (nothing sent); the pcb is
+ *   freed.
+ * Refuse and drop consume the pointer: after their success, or after an err or
+ * destroy notice, never pass it to lwIP again. A caller inside one of this
+ * pcb's callbacks returns ERR_ABRT, as for tcp_abort. */
+err_t tcp_passive_open_release(struct tcp_pcb *pcb);
+err_t tcp_passive_open_refuse(struct tcp_pcb *pcb);
+err_t tcp_passive_open_drop(struct tcp_pcb *pcb);
+
+/* Core-internal: true for a connection pcb that is held. Reads state first: a
+ * listen pcb (tcp_close accepts one) has no flags member. */
+#define TCP_PASSIVE_HELD(pcb) (((pcb)->state != LISTEN) && (((pcb)->flags & TF_PASSIVE_HELD) != 0))
 #endif
 
 #ifdef __cplusplus

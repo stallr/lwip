@@ -320,6 +320,15 @@ tcp_write_checks(struct tcp_pcb *pcb, u16_t len)
     return ERR_OK;
   }
 
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+  /* A held passive open is still SYN_RCVD, where tcp_write is otherwise legal
+     and would enqueue data ahead of the SYN|ACK that release sends. A
+     zero-length write stays the no-op it is above. */
+  if (pcb->flags & TF_PASSIVE_HELD) {
+    return ERR_VAL;
+  }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
+
   /* fail on too much data */
   if (len > pcb->snd_buf) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("tcp_write: too much data (len=%"U16_F" > snd_buf=%"TCPWNDSIZE_F")\n",
@@ -1254,6 +1263,15 @@ tcp_output(struct tcp_pcb *pcb)
   /* pcb->state LISTEN not allowed here */
   LWIP_ASSERT("don't call tcp_output for listen-pcbs",
               pcb->state != LISTEN);
+
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+  /* A held passive open sends nothing: not the challenge ACK from tcp_input's
+     post-processing call, not the slow timer's poll output, not the fast
+     timer's delayed ACK. */
+  if (pcb->flags & TF_PASSIVE_HELD) {
+    return ERR_OK;
+  }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
 
   /* First, check if we are invoked by the TCP input processing
      code. If so, we do not output anything. Instead, we rely on the

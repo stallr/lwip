@@ -3636,6 +3636,32 @@
 #error "LAST_ACK pressure ERR_MEM requires adapted raw callback consumers only"
 #endif
 
+/** Opt in to a third outcome of the ext-arg passive_open callback: hold.
+ * A callback that returns ERR_INPROGRESS keeps the new SYN_RCVD pcb registered
+ * but sends no SYN|ACK and changes nothing about it until its owner calls
+ * tcp_passive_open_release() (send the SYN|ACK now), tcp_passive_open_refuse()
+ * (RST) or tcp_passive_open_drop() (silent). Default off keeps the upstream
+ * contract, where any other non-ERR_OK result drops the pcb. With no callback
+ * that returns ERR_INPROGRESS, packet behaviour is unchanged; the pcb structs
+ * still grow by the ext-arg table (LWIP_TCP_PCB_NUM_EXT_ARGS, one entry).
+ * See the contract on tcp_extarg_callback_passive_open_fn in lwip/tcp.h.
+ */
+#ifndef LWIP_TCP_PASSIVE_OPEN_HOLD
+#define LWIP_TCP_PASSIVE_OPEN_HOLD 0
+#endif
+#if LWIP_TCP_PASSIVE_OPEN_HOLD && !LWIP_TCP
+#error "LWIP_TCP_PASSIVE_OPEN_HOLD requires LWIP_TCP"
+#endif
+/* The callback loop stops at the first non-ERR_OK result: with more ext-arg
+ * ids a hold would skip the later ids' passive_open callbacks. */
+#if LWIP_TCP_PASSIVE_OPEN_HOLD && (LWIP_TCP_PCB_NUM_EXT_ARGS != 1)
+#error "LWIP_TCP_PASSIVE_OPEN_HOLD requires LWIP_TCP_PCB_NUM_EXT_ARGS == 1"
+#endif
+/* The hold is verified only without listen-backlog accounting. */
+#if LWIP_TCP_PASSIVE_OPEN_HOLD && (TCP_LISTEN_BACKLOG != 0)
+#error "LWIP_TCP_PASSIVE_OPEN_HOLD is verified only with TCP_LISTEN_BACKLOG == 0"
+#endif
+
 /* HEV packet ownership hooks. Default off preserves the generic lwIP API.
  * UDP: after validation, before matched delivery/allocation. A taken packet
  * belongs to the callback; not-taken must leave it completely unchanged.

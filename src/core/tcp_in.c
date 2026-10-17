@@ -718,7 +718,18 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
     MIB2_STATS_INC(mib2.tcppassiveopens);
 
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
-    if (tcp_ext_arg_invoke_callbacks_passive_open(pcb, npcb) != ERR_OK) {
+    rc = tcp_ext_arg_invoke_callbacks_passive_open(pcb, npcb);
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+    if (rc == ERR_INPROGRESS) {
+      /* Hold: the owner decides later (tcp_passive_open_release/refuse/drop).
+         Send nothing; tcp_process, tcp_output, tcp_write and tcp_close leave
+         a held pcb alone. The flag is set only now, after the callback has
+         returned. */
+      tcp_set_flags(npcb, TF_PASSIVE_HELD);
+      return;
+    }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
+    if (rc != ERR_OK) {
       tcp_abandon(npcb, 0);
       return;
     }
@@ -842,6 +853,16 @@ tcp_process(struct tcp_pcb *pcb)
       return ERR_OK;
     }
   }
+
+#if LWIP_TCP_PASSIVE_OPEN_HOLD
+  if (pcb->flags & TF_PASSIVE_HELD) {
+    /* Held passive open: after the RST block (an exact RST still removes the
+       pcb, an in-window RST still only sets TF_ACK_NOW) consume the segment
+       with no state, timer, option or window change and no reply. tcp_output
+       is guarded too, so the challenge ACK stays unsent. */
+    return ERR_OK;
+  }
+#endif /* LWIP_TCP_PASSIVE_OPEN_HOLD */
 
   if ((flags & TCP_SYN) && (pcb->state != SYN_SENT && pcb->state != SYN_RCVD)) {
     /* Cope with new connection attempt after remote end crashed */
