@@ -171,6 +171,7 @@ extern int (*udp_pretend_input_hook)(struct pbuf *, struct netif *,
 #endif
 
 void             udp_init       (void);
+void             udp_fini       (void);
 
 /* for compatibility with older implementation */
 #define udp_new_ip6() udp_new_ip_type(IPADDR_TYPE_V6)
