@@ -115,7 +115,8 @@ void *hev_calloc (size_t nmemb, size_t size);
  * (especially if your netif driver allocates PBUF_POOL pbufs for received frames
  * from interrupt)!
  */
-#define MEMP_MEM_MALLOC                 1
+/* The DNS reserve uses the bounded UDP PCB free list. */
+#define MEMP_MEM_MALLOC                 0
 
 /*
    ------------------------------------------------
