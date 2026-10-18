@@ -406,7 +406,7 @@ void *hev_calloc (size_t nmemb, size_t size);
  * with scaling applied. Maximum window value in the TCP header
  * will be TCP_WND >> TCP_RCV_SCALE
  */
-#define TCP_WND                         (16 * TCP_MSS)
+#define TCP_WND                         (8 * TCP_MSS)
 
 /**
  * LWIP_WND_SCALE and TCP_RCV_SCALE:
@@ -414,14 +414,16 @@ void *hev_calloc (size_t nmemb, size_t size);
  * Set TCP_RCV_SCALE to the desired scaling factor (shift count in the
  * range of [0..14]).
  */
-#define LWIP_WND_SCALE                  1
-#define TCP_RCV_SCALE                   3
+/* The session receive queue and refused-FIN lifetime require a 16-bit window. */
+#define LWIP_WND_SCALE                  0
+#define TCP_RCV_SCALE                   0
 
 /**
  * TCP_SND_BUF: TCP sender buffer space (bytes).
  * To achieve good performance, this should be at least 2 * TCP_MSS.
  */
-#define TCP_SND_BUF                     (32 * TCP_MSS)
+/* snd_buf is tcpwnd_size_t, also 16-bit when window scaling is disabled. */
+#define TCP_SND_BUF                     (8 * TCP_MSS)
 
 /**
  * TCP_SNDLOWAT: TCP writable space (bytes). This must be less than
